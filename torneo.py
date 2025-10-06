@@ -9,6 +9,8 @@ RESULTS_SHEET = "resultados"
 SCORERS_SHEET = "goleadores"
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+
+# Leer credenciales desde Streamlit Secrets (para Streamlit Cloud)
 creds_dict = st.secrets["google_service_account"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 client = gspread.authorize(creds)
@@ -27,7 +29,7 @@ try:
 except:
     sh = client.open(SHEET_NAME)
     ws_scorers = sh.add_worksheet(title=SCORERS_SHEET, rows="1000", cols="10")
-    ws_scorers.append_row(["Equipo", "Jugador", "Goles"])
+    ws_scorers.append_row(["Equipo", "Jugador", "Goles", "Grupo", "Fecha"])
 
 # --- DATOS TORNEO ---
 grupos = {
@@ -75,9 +77,9 @@ def bandera_html(nombre):
 def guardar_resultado(grupo, fecha, equipo, goles_eq, goles_cpu):
     ws_results.append_row([grupo, fecha, equipo, goles_eq, goles_cpu])
 
-def guardar_goleadores(equipo, jugadores):
+def guardar_goleadores(grupo, fecha, equipo, jugadores):
     for j in jugadores:
-        ws_scorers.append_row([equipo, j, 1])
+        ws_scorers.append_row([equipo, j, 1, grupo, fecha])
 
 def cargar_resultados():
     data = ws_results.get_all_records()
@@ -85,7 +87,7 @@ def cargar_resultados():
 
 def cargar_goleadores():
     data = ws_scorers.get_all_records()
-    return pd.DataFrame(data) if data else pd.DataFrame(columns=["Equipo","Jugador","Goles"])
+    return pd.DataFrame(data) if data else pd.DataFrame(columns=["Equipo","Jugador","Goles","Grupo","Fecha"])
 
 # --- APP ---
 st.title("🏆 Torneo vs CPU (Google Sheets)")
@@ -104,18 +106,21 @@ for equipo in grupos[grupo_sel]:
     titulo = f"{bandera_html(equipo)} vs {bandera_html(cpu)}"
 
     # ver si ya existe este resultado en la hoja
-    ya_cargado = ((df_res["Grupo"] == grupo_sel) & 
-                  (df_res["Fecha"] == fecha_sel) & 
-                  (df_res["Equipo"] == equipo)).any()
+    match = df_res[(df_res["Grupo"]==grupo_sel) & (df_res["Fecha"]==fecha_sel) & (df_res["Equipo"]==equipo)]
+    ya_cargado = not match.empty
 
     cols = st.columns([2,1,1,1])
     if ya_cargado:
         cols[0].markdown(f"<div style='background-color:#f0f0f0;padding:4px;border-radius:4px'>{titulo}</div>", unsafe_allow_html=True)
+        goles_guardados_eq = int(match.iloc[0]["GolesEquipo"])
+        goles_guardados_cpu = int(match.iloc[0]["GolesCPU"])
     else:
         cols[0].markdown(f"**{titulo}**", unsafe_allow_html=True)
+        goles_guardados_eq = 0
+        goles_guardados_cpu = 0
 
-    g_eq = cols[1].number_input("",0,10,0,key=f"{grupo_sel}_{fecha_sel}_{equipo}_eq")
-    g_cpu = cols[2].number_input("",0,10,0,key=f"{grupo_sel}_{fecha_sel}_{equipo}_cpu")
+    g_eq = cols[1].number_input("",0,10,goles_guardados_eq,key=f"{grupo_sel}_{fecha_sel}_{equipo}_eq")
+    g_cpu = cols[2].number_input("",0,10,goles_guardados_cpu,key=f"{grupo_sel}_{fecha_sel}_{equipo}_cpu")
 
     if cols[3].button("💾", key=f"save_{grupo_sel}_{fecha_sel}_{equipo}"):
         if not ya_cargado:
@@ -124,12 +129,19 @@ for equipo in grupos[grupo_sel]:
         else:
             st.warning("⚠️ Ya cargaste este partido.")
 
+    # GOLEADORES
     with st.expander(f"Goleadores de {equipo}"):
-        goles_txt = st.text_input("Jugadores", key=f"gol_{grupo_sel}_{fecha_sel}_{equipo}")
+        # buscar si ya hay goles cargados para este equipo, grupo y fecha
+        gol_match = df_gol[(df_gol["Equipo"]==equipo) & (df_gol["Grupo"]==grupo_sel) & (df_gol["Fecha"]==fecha_sel)]
+        if not gol_match.empty:
+            jugadores_guardados = ", ".join(gol_match["Jugador"].tolist())
+        else:
+            jugadores_guardados = ""
+        goles_txt = st.text_input("Jugadores (separar por coma)", jugadores_guardados, key=f"gol_{grupo_sel}_{fecha_sel}_{equipo}")
         if st.button("⚽ Guardar goleadores", key=f"save_gol_{grupo_sel}_{fecha_sel}_{equipo}"):
             if goles_txt.strip():
                 jugadores = [j.strip() for j in goles_txt.split(",")]
-                guardar_goleadores(equipo, jugadores)
+                guardar_goleadores(grupo_sel, fecha_sel, equipo, jugadores)
                 st.success("✅ Goleadores guardados")
 
 # --- TABLA DE POSICIONES ---
@@ -162,4 +174,5 @@ if not df_gol.empty and "Equipo" in df_gol.columns:
     st.markdown(df_rank.to_html(escape=False,index=False), unsafe_allow_html=True)
 else:
     st.info("Todavía no hay goles cargados.")
+
 
