@@ -9,7 +9,8 @@ RESULTS_SHEET = "resultados"
 SCORERS_SHEET = "goleadores"
 
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+creds_dict = st.secrets["google_service_account"]
+creds = ServiceAccountCredentials.from_json_keyfile_dict(dict(creds_dict), scope)
 client = gspread.authorize(creds)
 
 # abrir hoja resultados
@@ -161,3 +162,4 @@ if not df_gol.empty and "Equipo" in df_gol.columns:
     st.markdown(df_rank.to_html(escape=False,index=False), unsafe_allow_html=True)
 else:
     st.info("Todavía no hay goles cargados.")
+
